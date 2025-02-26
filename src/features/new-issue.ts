@@ -4,7 +4,7 @@ import type { GitHub } from "@actions/github/lib/utils";
 import { config, cosmic } from "@anandchowdhary/cosmic";
 import slugify from "@sindresorhus/slugify";
 import { getByTag } from "locale-codes";
-import { search } from "../google-books";
+import { search, SearchOptions } from "../google-books";
 import { updateSummary } from "./update-summary";
 
 const clean = (str: string) => slugify(str, { lowercase: true, separator: " " });
@@ -38,8 +38,35 @@ export const onNewIssue = async (
     `started: ${new Date().getUTCFullYear()}`,
   ];
   try {
-    debug(`Searching for "${issue.data.title}"`);
-    const details = await search(issue.data.title);
+    const issueTitle = issue.data.title.trim();
+    debug(`Searching for "${issueTitle}"`);
+    
+    // Configuration for book search - can be customized based on your needs
+    const searchOptions: SearchOptions = {
+      maxResults: 15,       // Get more results for better selection
+      language: 'en',       // Default to English books (can be made configurable)
+      minRating: 0          // Don't filter by rating yet
+    };
+    
+    // Try to extract ISBN if present in the issue body
+    let details;
+    const isbnMatch = issue.data.body ? issue.data.body.match(/ISBN[-]?1[03]?:?\s?([0-9-]+)/i) : null;
+    
+    if (isbnMatch && isbnMatch[1]) {
+      // If ISBN found in issue body, use it for precise search
+      try {
+        debug(`ISBN found in issue body: ${isbnMatch[1]}, searching by ISBN`);
+        const isbnSearch = await import('../google-books');
+        details = await isbnSearch.searchByIsbn(isbnMatch[1]);
+      } catch (isbnError) {
+        debug(`ISBN search failed: ${String(isbnError)}, falling back to title search`);
+        details = await search(issueTitle, searchOptions);
+      }
+    } else {
+      // Otherwise search by title
+      details = await search(issueTitle, searchOptions);
+    }
+    
     body += `Congrats on adding **${details.title}** by ${details.authors.join(
       ", "
     )} to your bookshelf, I hope you enjoy it! It has an average of ${
